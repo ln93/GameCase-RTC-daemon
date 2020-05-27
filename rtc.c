@@ -252,7 +252,7 @@ int getvol(void)
 	printf("%d \n", cmdread[1]);
 	FILE *fp;
 	fp = fopen("/dev/shm/volume", "w");
-	fprintf(fp, "%d\n", cmdread[1]);
+	fprintf(fp, "%d\n", (int)((double)cmdread[1]/255*100));
 	fclose(fp);
 	return 0;
 }
