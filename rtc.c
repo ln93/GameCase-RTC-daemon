@@ -194,14 +194,19 @@ int setDSClock(void)
 	int clock[8];
 	unsigned char cmdwrite[] = {0xbf, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; //0xBE read time 0xBF set time
 	printf("Setting the clock in the RTC from Linux time... ");
-	time(&now);			 //取得当前时间UTC秒数，无时区转换
-	t = localtime(&now); //获取当前时间结构，UTC时间，无时区转换
+	time(&now);			
+	t = localtime(&now); //get localtime
 
 	clock[0] = dToBcd(t->tm_sec); // seconds
 	clock[1] = dToBcd(t->tm_min); // mins
 	clock[2] = t->tm_hour - 8;
 	if (clock[2] < 0)
-		clock[2] = clock[2] + 24;
+		clock[2] = clock[2] + 24; 
+	// the GameCase motherboard firmware would +8hrs when receiving the command(to simulate UTC+8).
+	// that's not a good solution, so we fix it.
+	// Now we don't store UTC into RTC， instead we just store Localtime - 8hrs, if below 0, +24hrs. 
+	// The GameCase FW would +8hrs, so the time is properly now, we can read LocalTime from RTC.
+	// Both the program and the GC FW won't touch date when the hour is over 23/below 0 after calculation.
 	clock[2] = dToBcd(clock[2]);		 // hours
 	clock[3] = dToBcd(t->tm_mday);		 // date
 	clock[4] = dToBcd(t->tm_mon + 1);	 // months 0-11 --> 1-12
@@ -230,7 +235,7 @@ int setDSClock(void)
 	wiringPiSPIDataRW(0, &cmdwrite[6], 1);
 	delayms(5);
 	wiringPiSPIDataRW(0, &cmdwrite[7], 1);
-	//printf("%d", clock[2]);
+
 	printf("OK\n");
 	return 0;
 }
@@ -297,8 +302,6 @@ int setbl(void)
 int getbat(void)
 {
 	unsigned char cmdread[] = {196, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-	//printf("Get Current Battery: ");
 	wiringPiSPIDataRW(0, cmdread, 1);
 	delayms(100);
 	wiringPiSPIDataRW(0, &cmdread[1], 1);
@@ -308,9 +311,9 @@ int getbat(void)
 	struct sockaddr_in addr;
 	socketfd = socket(AF_INET, SOCK_DGRAM, 0);
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(55355);
-	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	//sendto(socketfd, "SAVE_STATE", 11, 0, (struct sockaddr *)&addr, sizeof(addr));
+	addr.sin_port = htons(55355);//retroarch network_cmd port
+	addr.sin_addr.s_addr = inet_addr("127.0.0.1");//local ipaddr
+	
 	FILE *fp;
 	fp = fopen("/dev/shm/battery", "w");
 	fprintf(fp, "%d\n", 25 * cmdread[1]);
@@ -320,6 +323,7 @@ int getbat(void)
 		batterydead++;
 		if (batterydead > 20)
 		{
+			//call retroarch to save game&quit, then shutdown console.
 			sendto(socketfd, "SAVE_STATE", 11, 0, (struct sockaddr *)&addr, sizeof(addr));
 			sleep(8);
 			sendto(socketfd, "QUIT", 5, 0, (struct sockaddr *)&addr, sizeof(addr));
